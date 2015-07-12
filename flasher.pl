@@ -222,6 +222,118 @@ do {
     die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
 } while ( $return ne "\x00" );
 
+# === Select chip infopage===
+say "Selecting infopage and enabling programming...";
+
+$status_byte &= ~BP_CS;                     # CS low
+
+$port->write( $status_byte );               # Write status
+usleep ( 200000 );
+die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
+
+$port->write( "\x11" );                     # Bulk SPI transfer: 1 byte
+usleep ( 20000 );
+die "Failed bulk read/write." if ( $port->read( 1 ) ne "\x01" );
+
+# write WRSR INFEN and WEN to select infopage
+$port->write( WRSR );                  # Bulk 0: command
+$port->write( "\x28" );                  # Bulk 0: data
+usleep( 20000 );
+
+$port->read( 1 );                           # Dummy (command)
+$port->read( 1 );                           # Dummy (data)
+
+$status_byte |=  BP_CS;                     # CS high
+
+$port->write( $status_byte );               # Write status
+usleep ( 200000 );
+die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
+
+# === Read CHIPID in infopage ===
+say "Reading CHIPID...";
+
+$status_byte &= ~BP_CS;                     # CS low
+
+$port->write( $status_byte );               # Write status
+usleep ( 200000 );
+die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
+
+$port->write( "\x17" );                     # Bulk SPI transfer: 8 bytes
+usleep ( 20000 );
+die "Failed bulk read/write." if ( $port->read( 1 ) ne "\x01" );
+
+$port->write( READ );                       # Bulk 0: command
+$port->write( "\x00\x0b" );                 # Bulk 1,2: addr
+$port->write( "\x00\x00\x00\x00\x00" );                     # Dummy (data)
+
+usleep( 20000 );
+
+$return = $port->read( 3 );                 # Dummy (command)
+my $chipid = "";
+for (my $id=0;$id<5;$id++) {
+	$chipid .= $port->read( 1 );		    # Read data
+}
+say "Chipid is: ";
+say _pretty_hex($chipid);
+
+$status_byte |=  BP_CS;                     # CS high
+
+$port->write( $status_byte );               # Write status
+usleep ( 200000 );
+die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
+
+# === Erase infopage ===
+say "Erasing infopage...";
+
+$status_byte &= ~BP_CS;                     # CS low
+
+$port->write( $status_byte );               # Write status
+usleep ( 200000 );
+die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
+
+$port->write( "\x11" );                     # Bulk SPI transfer: 1 byte
+usleep ( 20000 );
+die "Failed bulk read/write." if ( $port->read( 1 ) ne "\x01" );
+
+$port->write( ERASE_PAGE );                 # Bulk 0: command
+$port->write( "\x00" );                  # Bulk 1: data
+
+usleep( 20000 );
+
+$port->read( 2 );                           # Dummy (command)
+
+$status_byte |=  BP_CS;                     # CS high
+
+$port->write( $status_byte );               # Write status
+usleep ( 200000 );
+die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
+
+# Spin until device is finished erasing
+do {
+    $status_byte &= ~BP_CS;                 # CS low
+
+    $port->write( $status_byte );           # Write status
+    usleep ( 200000 );
+    die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
+
+    $port->write( "\x11" );                 # Bulk SPI transfer: 2 bytes
+    usleep ( 20000 );
+    die "Failed bulk read/write." if ( $port->read( 1 ) ne "\x01" );
+
+    $port->write( RDSR );                   # Bulk 0: command
+    $port->write( "\x00" );                 # Bulk 1: dummy
+
+    usleep( 20000 );
+
+    $return = $port->read( 1 );             # Dummy (command)
+    $return = $port->read( 1 );             # Read reply
+
+    $status_byte |=  BP_CS;                 # CS high
+
+    $port->write( $status_byte );           # Write status
+    usleep ( 200000 );
+    die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
+} while ( $return ne "\x08" );
 
 # === Set write enable again ===
 say "Enabling programming...";
@@ -247,6 +359,57 @@ $port->write( $status_byte );               # Write status
 usleep ( 200000 );
 die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
 
+# === Write CHIPID back ===
+say "Writing CHIPID to infopage...";
+
+$status_byte &= ~BP_CS;                     # CS low
+
+$port->write( $status_byte );               # Write status
+usleep ( 200000 );
+die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
+
+$port->write( "\x17" );                     # Bulk SPI transfer: 8 bytes
+usleep ( 20000 );
+die "Failed bulk read/write." if ( $port->read( 1 ) ne "\x01" );
+$chipid = "\xc0\xff\xee\xfa\xce";
+$port->write( PROGRAM );                 # Bulk 0: command
+$port->write( "\x00\x0b" );                  # Bulk 1: addr
+$port->write( $chipid );    # Write data
+usleep ( 20000 );
+$port->read( 8 );
+
+$status_byte |=  BP_CS;                     # CS high
+
+$port->write( $status_byte );               # Write status
+usleep ( 200000 );
+die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
+
+# === Unselect chip infopage===
+say "Unselecting infopage and enabling programming...";
+
+$status_byte &= ~BP_CS;                     # CS low
+
+$port->write( $status_byte );               # Write status
+usleep ( 200000 );
+die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
+
+$port->write( "\x11" );                     # Bulk SPI transfer: 1 byte
+usleep ( 20000 );
+die "Failed bulk read/write." if ( $port->read( 1 ) ne "\x01" );
+
+# Set WRSR INFEN and WEN to deselect infopage and enable writes
+$port->write( WRSR );                  # Bulk 0: command
+$port->write( "\x20" );                  # Bulk 0: data
+usleep( 20000 );
+
+$port->read( 1 );                           # Dummy (command)
+$port->read( 1 );                           # Dummy (data)
+
+$status_byte |=  BP_CS;                     # CS high
+
+$port->write( $status_byte );               # Write status
+usleep ( 200000 );
+die "Unable to set status." if ( $port->read( 1 ) ne "\x01" );
 
 # === Check status byte ===
 say "Reading status byte...";
